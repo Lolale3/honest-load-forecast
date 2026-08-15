@@ -23,11 +23,11 @@ from honest_forecast.config import ensure_dirs  # noqa: E402
 ensure_dirs()
 
 REGION = "ercot"
-START = "2023-01-01"
-END = "2023-12-31"
+START = "2021-04-01"   # earliest archived-forecast coverage (see probe_archive2.py)
+END = "2026-07-31"     # last complete month
 
 print(f"Building aligned table for {REGION.upper()}, {START} -> {END}")
-print("(first run downloads ~12 months from two APIs; later runs read the cache)")
+print("(first run downloads year by year from two APIs; later runs read the cache)")
 
 df = align.build(REGION, START, END)
 
@@ -42,3 +42,8 @@ print("\nHottest and coldest hours in the year:")
 print(df.loc[[df["temp_actual"].idxmax(), df["temp_actual"].idxmin()], with_cols].round(2))
 
 print(f"\nPeak demand hour: {df['demand'].idxmax()}  ({df['demand'].max():,.0f} MW)")
+
+print("\nPeak demand by year -- check these against ERCOT's published records:")
+by_year = df.groupby(df.index.year)["demand"].agg(["max", "idxmax", "count"])
+by_year.columns = ["peak_MW", "when_utc", "hours"]
+print(by_year.to_string(formatters={"peak_MW": "{:,.0f}".format}))

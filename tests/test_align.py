@@ -183,3 +183,41 @@ def test_short_and_long_gaps_in_one_series_are_handled_separately():
     assert df["temp_actual"].iloc[1] == pytest.approx(11.0), "1-hour gap filled"
     assert df["temp_actual"].iloc[3:8].isna().all(), "5-hour gap untouched"
     assert int(df["temp_actual_filled"].sum()) == 1
+
+
+# --------------------------------------------------------------------------
+# Year chunking
+#
+# Chunk boundaries are a classic source of duplicated or dropped hours: an
+# off-by-one at a year end silently doubles 31 December or loses 1 January.
+# --------------------------------------------------------------------------
+
+def test_single_year_is_one_chunk():
+    assert align._year_chunks("2023-01-01", "2023-12-31") == [("2023-01-01", "2023-12-31")]
+
+
+def test_multi_year_splits_on_calendar_years():
+    assert align._year_chunks("2021-04-01", "2023-06-15") == [
+        ("2021-04-01", "2021-12-31"),
+        ("2022-01-01", "2022-12-31"),
+        ("2023-01-01", "2023-06-15"),
+    ]
+
+
+def test_chunks_are_contiguous_with_no_overlap():
+    """Every day in the range appears in exactly one chunk. An overlap
+    duplicates hours; a gap loses them."""
+    chunks = align._year_chunks("2021-04-01", "2026-08-01")
+
+    days = pd.DatetimeIndex([])
+    for lo, hi in chunks:
+        days = days.append(pd.date_range(lo, hi, freq="D"))
+
+    expected = pd.date_range("2021-04-01", "2026-08-01", freq="D")
+    assert len(days) == len(expected), "chunks must tile the range exactly"
+    assert not days.duplicated().any(), "chunks must not overlap"
+    assert days.equals(expected)
+
+
+def test_partial_year_at_both_ends_is_clipped():
+    assert align._year_chunks("2022-06-01", "2022-06-30") == [("2022-06-01", "2022-06-30")]

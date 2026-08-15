@@ -60,6 +60,22 @@ def hourly_spine(start: str, end: str) -> pd.DatetimeIndex:
     return pd.date_range(first, last, freq="h", name="period_utc")
 
 
+def _year_chunks(start: str, end: str) -> list[tuple[str, str]]:
+    """Split a date range into calendar-year pieces, clipped to the range.
+
+    Chunks are what make a five-year pull survivable: each year is cached
+    independently, so a failure costs one year rather than the whole window.
+    """
+    first, last = pd.Timestamp(start), pd.Timestamp(end)
+    chunks = []
+    for year in range(first.year, last.year + 1):
+        lo = max(first, pd.Timestamp(f"{year}-01-01"))
+        hi = min(last, pd.Timestamp(f"{year}-12-31"))
+        if lo <= hi:
+            chunks.append((lo.strftime("%Y-%m-%d"), hi.strftime("%Y-%m-%d")))
+    return chunks
+
+
 # --------------------------------------------------------------------------
 # Gap analysis
 # --------------------------------------------------------------------------
@@ -201,15 +217,35 @@ def build(
     *,
     verbose: bool = True,
 ) -> pd.DataFrame:
-    """One hourly table: demand, the operator's forecast, and both temperatures."""
+    """One hourly table: demand, the operator's forecast, and both temperatures.
+
+    Long windows are fetched one calendar year at a time. Each year caches
+    independently, so a failure in year four costs you year four rather than
+    the whole pull -- and neither API enjoys a single enormous request.
+    """
     if isinstance(region, str):
         region = get_region(region)
 
     spine = hourly_spine(start, end)
 
-    # S1 wants hour strings, S2 wants dates. Their interfaces, not our choice.
-    demand = eia.load_demand(region, f"{start}T00", f"{end}T23")
-    temps = weather.load_weather(region, start, end)
+    demand_parts, weather_parts = [], []
+    for chunk_start, chunk_end in _year_chunks(start, end):
+        if verbose:
+            print(f"  fetching {chunk_start[:4]} ...", flush=True)
+        demand_parts.append(eia.load_demand(region, f"{chunk_start}T00", f"{chunk_end}T23"))
+        weather_parts.append(weather.load_weather(region, chunk_start, chunk_end))
+
+    demand = pd.concat(demand_parts).sort_index()
+    temps = pd.concat(weather_parts).sort_index()
+
+    # Chunk boundaries are the classic place to introduce a duplicated hour.
+    # Check rather than trust -- a duplicate would silently break the reindex.
+    for name, frame in (("demand", demand), ("weather", temps)):
+        dupes = frame.index.duplicated()
+        if dupes.any():
+            raise RuntimeError(
+                f"{int(dupes.sum())} duplicated hours in {name} after stitching year chunks"
+            )
 
     # Reindex onto the spine BEFORE joining. Now every hour exists as a row,
     # and anything absent from a source is a visible NaN.
