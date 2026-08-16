@@ -44,6 +44,6 @@ print(f"  act: {len(act)} features")
 print(f"  fc1: {len(fc1)} features")
 
 print("\nA few temperature features at the hottest hour:")
-hottest = clean["act_t1"].idxmax()
-show = ["act_t1", "act_t2", "act_t3", "act_t_lag24", "act_t_mean24", "fc1_t1", "demand"]
+hottest = clean["act_h_base"].idxmax()
+show = ["act_h_base", "act_h20", "act_h30", "act_h35", "act_t_lag24", "act_t_mean24", "fc1_h_base", "demand"]
 print(clean.loc[[hottest], show].T.round(1))

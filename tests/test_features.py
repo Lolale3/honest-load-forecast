@@ -188,12 +188,56 @@ def test_trend_increases_monotonically():
 # Assembly
 # --------------------------------------------------------------------------
 
-def test_polynomial_terms_are_actual_powers():
-    df = aligned_frame(100)
-    out = features.build(df, verbose=False)
+# --------------------------------------------------------------------------
+# THE HINGE BASIS
+#
+# This replaced a cubic polynomial after the cubic over-predicted sub-zero
+# demand by +3,700 MW. The cubic extrapolated wildly into the sparse cold
+# tail; hinges continue the last fitted slope instead.
+# --------------------------------------------------------------------------
 
-    assert out["act_t2"].iloc[50] == pytest.approx(out["act_t1"].iloc[50] ** 2)
-    assert out["act_t3"].iloc[50] == pytest.approx(out["act_t1"].iloc[50] ** 3)
+def test_hinge_is_zero_below_its_knot_and_linear_above():
+    temps = pd.Series([-5.0, 0.0, 10.0, 20.0, 30.0], index=hours(5))
+    basis = features.hinge_basis(temps, knots=(10.0,))
+
+    assert basis["h10"].tolist() == [0.0, 0.0, 0.0, 10.0, 20.0]
+
+
+def test_base_term_is_the_raw_temperature():
+    temps = pd.Series([-5.0, 15.0, 40.0], index=hours(3))
+    basis = features.hinge_basis(temps, knots=(20.0,))
+
+    assert basis["h_base"].tolist() == [-5.0, 15.0, 40.0]
+
+
+def test_one_hinge_per_knot():
+    temps = pd.Series([20.0] * 3, index=hours(3))
+    basis = features.hinge_basis(temps, knots=(0.0, 10.0, 20.0, 30.0))
+
+    assert list(basis.columns) == ["h_base", "h0", "h10", "h20", "h30"]
+
+
+def test_hinges_can_represent_a_v_shape_a_line_cannot():
+    """The point of the basis. Demand is high when cold, low in the middle,
+    high when hot. A single slope cannot do that; base + hinge can."""
+    temps = pd.Series([0.0, 10.0, 20.0, 30.0, 40.0], index=hours(5))
+    basis = features.hinge_basis(temps, knots=(20.0,))
+
+    # A falling base slope plus a steep hinge above 20 gives a V.
+    fitted = -1.0 * basis["h_base"] + 3.0 * basis["h20"]
+
+    assert fitted.iloc[0] > fitted.iloc[2], "cold end above the middle"
+    assert fitted.iloc[4] > fitted.iloc[2], "hot end above the middle"
+
+
+def test_hinge_extrapolation_is_linear_not_explosive():
+    """Why we left the cubic. Ten degrees past the last knot, a hinge basis
+    has grown by a constant slope; a cubic would have grown by a cube."""
+    knots = (30.0,)
+    inside = features.hinge_basis(pd.Series([35.0], index=hours(1)), knots)["h30"].iloc[0]
+    outside = features.hinge_basis(pd.Series([45.0], index=hours(1)), knots)["h30"].iloc[0]
+
+    assert outside - inside == pytest.approx(10.0), "linear growth beyond the data"
 
 
 def test_unsorted_index_is_refused():
@@ -207,5 +251,84 @@ def test_warmup_rows_are_dropped():
     clean = features.drop_warmup(out, verbose=False)
 
     assert clean.notna().all().all()
-    # The longest requirement is load_lag168.
-    assert len(clean) == 400 - 168
+    # The binding constraint is the longest lookback in the feature set --
+    # currently load_mean168, which needs horizon + window hours of history.
+    longest = max(features.LOAD_LAGS) + 0
+    longest = max(longest, features.FORECAST_HORIZON_HOURS + max(features.LOAD_WINDOWS))
+    longest = max(longest, max(features.TEMP_WINDOWS) + 1)
+    assert len(clean) == 400 - longest
+
+
+# --------------------------------------------------------------------------
+# DURATION COUNTERS
+#
+# Added after the model over-predicted an ordinary January 2026 cold snap by
+# 13 GW. It had learned "sub-zero means crisis" from Elliott and Kingston,
+# because nothing in the feature set distinguished "cold since this morning"
+# from "day three of a freeze".
+# --------------------------------------------------------------------------
+
+def test_cold_duration_counts_consecutive_hours():
+    temps = pd.Series([10.0, 2.0, 1.0, 0.0, 8.0, 3.0], index=hours(6))
+    dur = features._duration_below(temps, threshold=5.0)
+
+    assert dur.tolist() == [0.0, 1.0, 2.0, 3.0, 0.0, 1.0]
+
+
+def test_cold_duration_resets_when_it_warms_up():
+    temps = pd.Series([0.0, 0.0, 20.0, 0.0], index=hours(4))
+    dur = features._duration_below(temps, threshold=5.0)
+
+    assert dur.tolist() == [1.0, 2.0, 0.0, 1.0], "a warm hour must reset the count"
+
+
+def test_duration_is_capped():
+    temps = pd.Series([-5.0] * 200, index=hours(200))
+    dur = features._duration_below(temps, threshold=5.0, cap=120)
+
+    assert dur.max() == 120.0, "one extraordinary event must not dominate the coefficient"
+
+
+def test_hot_duration_is_the_mirror_image():
+    temps = pd.Series([20.0, 35.0, 36.0, 20.0], index=hours(4))
+    dur = features._duration_above(temps, threshold=30.0)
+
+    assert dur.tolist() == [0.0, 1.0, 2.0, 0.0]
+
+
+def test_duration_features_describe_the_past_not_the_present():
+    """Shifted by one hour. An unshifted counter would tell the model it is
+    currently freezing, which is information the temperature already carries."""
+    idx = hours(5)
+    temps = pd.Series([10.0, 0.0, 0.0, 0.0, 10.0], index=idx)
+    cal = features.calendar_features(idx, get_region("ercot"))
+
+    out = features.temperature_features(temps, cal, "act", lags=(), windows=())
+
+    assert pd.isna(out["act_hours_cold"].iloc[0])
+    assert out["act_hours_cold"].iloc[1] == 0.0, "at hour 1 the freeze has not yet started"
+    assert out["act_hours_cold"].iloc[2] == 1.0
+
+
+# --------------------------------------------------------------------------
+# LOAD LEVEL
+# --------------------------------------------------------------------------
+
+def test_load_rolling_mean_is_shifted_by_the_full_horizon():
+    """Every hour in the window must predate the decision point. A window
+    ending one hour before the target would be leakage."""
+    idx = hours(400)
+    demand = pd.Series(np.arange(400, dtype=float), index=idx)
+
+    out = features.load_features(demand, lags=(24,), windows=(168,), horizon=24)
+
+    # shift(24) puts row 276 at position 300; the 168-hour window ending
+    # there covers rows 109..276 inclusive.
+    expected = np.arange(109, 277).mean()
+    assert out["load_mean168"].iloc[300] == pytest.approx(expected)
+    # The key property: every hour in the window is at least `horizon` old.
+    assert 276 <= 300 - 24
+
+
+def test_all_default_load_features_respect_the_horizon():
+    features._check_horizon_safety(features.LOAD_LAGS, features.FORECAST_HORIZON_HOURS)
