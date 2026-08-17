@@ -1,0 +1,826 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Tomorrow's weather is a guess — and load forecasts are graded as if it weren't</title>
+<meta name="description" content="Measuring how much load forecasting evaluations flatter themselves. ERCOT, April 2021 – July 2026.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0E1116;
+  --ink-soft:#B6C0CE;
+  --paper:#F2F3F5;
+  --truth:#3FBFA8;
+  --belief:#F2723B;
+  --warn:#E8B54A;
+  --rule:rgba(255,255,255,.16);
+  --display:"Instrument Serif",Georgia,serif;
+  --body:"IBM Plex Sans",system-ui,sans-serif;
+  --data:"IBM Plex Mono",ui-monospace,monospace;
+  --gap:clamp(1.1rem,4vw,2.4rem);
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:#0E1116;color:var(--paper);
+  font-family:var(--body);font-size:clamp(15px,1.02vw,16.5px);line-height:1.6;
+  -webkit-font-smoothing:antialiased;overflow-x:hidden;
+}
+
+#world{position:fixed;inset:0;width:100%;height:100%;z-index:0}
+#vignette{
+  position:fixed;inset:0;z-index:1;pointer-events:none;
+  background:
+    radial-gradient(130% 85% at 50% 48%, transparent 32%, rgba(5,7,10,.62) 100%),
+    linear-gradient(180deg, rgba(5,7,10,.42) 0%, transparent 20%, transparent 74%, rgba(5,7,10,.6) 100%);
+}
+#prog{position:fixed;top:0;left:0;height:2px;width:0;background:var(--belief);z-index:9}
+
+main{position:relative;z-index:2}
+
+/* The world behind the text swings from near-black to near-white as the
+   seasons change, so every readable element carries its own soft shadow.
+   Cheaper and less intrusive than putting a panel behind everything. */
+.frame .inner{
+  text-shadow:0 1px 14px rgba(4,7,11,.92), 0 0 4px rgba(4,7,11,.7);
+}
+.frame .inner .panel{text-shadow:none}
+.frame{min-height:100svh;display:flex;align-items:center;padding:clamp(4rem,10vh,7rem) 0}
+.frame .inner{
+  width:100%;max-width:72rem;margin:0 auto;padding:0 var(--gap);
+  opacity:0;transform:translateY(28px);
+  transition:opacity .9s ease,transform .9s cubic-bezier(.2,.7,.3,1);
+}
+.frame.lit .inner{opacity:1;transform:none}
+.frame.wide .inner{max-width:78rem}
+
+.eyebrow{
+  font-family:var(--data);font-size:.68rem;letter-spacing:.18em;text-transform:uppercase;
+  color:var(--truth);margin:0 0 1.3rem;display:flex;flex-wrap:wrap;gap:.4rem 1.1rem;align-items:baseline;
+}
+.eyebrow span{color:var(--ink-soft)}
+
+h1,h2{font-family:var(--display);font-weight:400;letter-spacing:-.012em;line-height:1.04;margin:0 0 1.1rem;text-wrap:balance}
+h1{font-size:clamp(2.7rem,7vw,5.6rem);max-width:17ch}
+h2{font-size:clamp(2rem,4.2vw,3.4rem);max-width:20ch}
+h3{font-family:var(--body);font-weight:600;font-size:.92rem;margin:0 0 .45rem}
+
+p{margin:0 0 1rem;max-width:33rem}
+.lede{font-size:clamp(1.02rem,1.45vw,1.2rem);line-height:1.5;color:#DCE0E6;max-width:38rem}
+.note{font-size:.82rem;color:var(--ink-soft);max-width:33rem}
+em{font-style:italic}
+strong{font-weight:600;color:#fff}
+.num{font-family:var(--data);font-variant-numeric:tabular-nums;font-weight:500}
+.truth{color:var(--truth)}
+.belief{color:var(--belief)}
+
+.cols{display:grid;gap:clamp(1.6rem,4vw,3.4rem)}
+@media(min-width:920px){
+  .cols.split{grid-template-columns:minmax(0,1fr) minmax(0,1.1fr);align-items:center}
+  .cols.split.flip{grid-template-columns:minmax(0,1.1fr) minmax(0,1fr)}
+}
+
+.stamp{
+  font-family:var(--data);font-size:.66rem;letter-spacing:.16em;text-transform:uppercase;
+  color:var(--ink-soft);margin-bottom:2.2rem;padding-bottom:.8rem;border-bottom:1px solid var(--rule);
+  display:flex;flex-wrap:wrap;gap:.4rem 1.5rem;max-width:44rem;
+}
+.cue{
+  margin-top:2.6rem;font-family:var(--data);font-size:.68rem;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--ink-soft);display:flex;align-items:center;gap:.7rem;
+}
+.cue i{display:block;width:1px;height:26px;background:var(--truth);animation:drop 2.2s ease-in-out infinite}
+@keyframes drop{0%,100%{transform:scaleY(.3);opacity:.35}50%{transform:scaleY(1);opacity:1}}
+
+.panel{
+  background:rgba(12,15,20,.58);
+  backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);
+  border:1px solid var(--rule);padding:clamp(1.1rem,2.4vw,1.7rem);
+}
+.readout .row{display:grid;grid-template-columns:1fr auto;gap:1rem;align-items:baseline;padding:.68rem 0;border-bottom:1px solid var(--rule)}
+.readout .row:last-child{border-bottom:none}
+.readout .row.hi .k{color:#fff}
+.readout .k{font-size:.82rem;line-height:1.3}
+.readout .k small{display:block;color:var(--ink-soft);font-size:.7rem;font-family:var(--data)}
+.readout .v{font-family:var(--data);font-size:1.02rem;font-weight:500;font-variant-numeric:tabular-nums}
+
+.bignum{font-family:var(--data);font-size:clamp(3.2rem,9vw,6rem);font-weight:600;line-height:.9;letter-spacing:-.035em;font-variant-numeric:tabular-nums}
+.bignum-label{font-family:var(--data);font-size:.68rem;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-soft);margin-top:.8rem}
+
+.bandrow{display:grid;grid-template-columns:5.4rem 1fr 3.4rem;gap:.75rem;align-items:center;padding:.4rem 0;border-bottom:1px solid var(--rule);font-family:var(--data);font-size:.74rem}
+.bandrow:last-child{border-bottom:none}
+.bandrow .bar{height:10px;background:rgba(255,255,255,.07);position:relative}
+.bandrow .bar i{display:block;height:100%;background:var(--belief);width:0;transition:width 1.2s cubic-bezier(.2,.7,.25,1)}
+.bandrow.mild .bar i{background:var(--truth)}
+.lit .bandrow .bar i{width:var(--w)}
+.lit .bandrow:nth-child(2) .bar i{transition-delay:.1s}
+.lit .bandrow:nth-child(3) .bar i{transition-delay:.2s}
+.lit .bandrow:nth-child(4) .bar i{transition-delay:.3s}
+.lit .bandrow:nth-child(5) .bar i{transition-delay:.4s}
+.bandrow .val{text-align:right;font-weight:500}
+
+.race{display:grid;gap:.9rem;margin-top:1.5rem}
+.race .tag{display:flex;justify-content:space-between;align-items:baseline;font-family:var(--data);font-size:.76rem;margin-bottom:.32rem}
+.race .tag b{font-size:1.1rem;font-weight:600;font-variant-numeric:tabular-nums}
+.race .track{height:24px;background:rgba(255,255,255,.07);position:relative;overflow:hidden}
+.race .track i{position:absolute;inset:0 auto 0 0;width:0;transition:width 1.7s cubic-bezier(.3,.7,.2,1)}
+.lit .race .track i{width:var(--w)}
+.lit .race .lane.b .track i{transition-delay:.4s}
+
+.calc label{display:flex;justify-content:space-between;align-items:baseline;gap:1rem;font-size:.8rem;margin-bottom:.4rem}
+.calc label .amt{font-family:var(--data);font-weight:600;font-size:.95rem;color:var(--warn)}
+.calc .ctl{margin-bottom:1.4rem}
+.calc input[type=range]{width:100%;appearance:none;height:2px;background:rgba(255,255,255,.22);outline:none;margin:.6rem 0 0}
+.calc input[type=range]::-webkit-slider-thumb{appearance:none;width:15px;height:15px;border-radius:50%;background:var(--warn);cursor:pointer;border:none}
+.calc input[type=range]::-moz-range-thumb{width:15px;height:15px;border-radius:50%;background:var(--warn);cursor:pointer;border:none}
+.verdict{border-top:1px solid var(--rule);margin-top:1.4rem;padding-top:1.1rem}
+.verdict .headline{font-family:var(--display);font-size:clamp(1.25rem,2.3vw,1.7rem);line-height:1.15;margin-bottom:.45rem}
+.verdict .detail{font-size:.82rem;color:var(--ink-soft);margin:0;max-width:none}
+
+.pull{font-family:var(--display);font-size:clamp(1.7rem,3.6vw,2.7rem);line-height:1.18;max-width:24ch;margin:0 0 1.3rem}
+
+footer{
+  position:relative;z-index:2;border-top:1px solid var(--rule);padding:3rem 0 4rem;
+  font-family:var(--data);font-size:.72rem;color:var(--ink-soft);
+  background:rgba(6,8,12,.82);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);
+}
+footer .inner{max-width:72rem;margin:0 auto;padding:0 var(--gap)}
+footer p{max-width:52rem;margin-bottom:1.1rem}
+footer a{color:var(--truth);text-decoration:none;border-bottom:1px solid rgba(63,191,168,.35)}
+footer a:hover{border-color:var(--truth)}
+
+:focus-visible{outline:2px solid var(--warn);outline-offset:3px}
+
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .frame .inner{opacity:1;transform:none;transition:none}
+  .bandrow .bar i,.race .track i{transition:none;width:var(--w)}
+  .cue i{animation:none}
+}
+</style>
+</head>
+<body>
+
+<canvas id="world" aria-hidden="true"></canvas>
+<div id="vignette" aria-hidden="true"></div>
+<div id="prog" aria-hidden="true"></div>
+
+<main>
+
+<section class="frame">
+  <div class="inner">
+    <div class="stamp"><span>ERCOT</span><span>Apr 2021 – Jul 2026</span><span>46,247 hours</span><span>day-ahead horizon</span></div>
+    <h1>Tomorrow's weather is a guess. Every load forecast is graded as if it weren't.</h1>
+    <p class="lede">Models that decide how much power a grid commits are backtested
+    against the temperature that actually occurred — an answer key they will never have on
+    the day. This is a measurement of what that difference costs.</p>
+    <p class="cue"><i></i> Scroll — the terrain ahead is the data</p>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">The landscape <span>demand against temperature</span></p>
+    <h2>This terrain is the finding.</h2>
+    <p class="lede">Texas demand is flat between about 15 and 20 °C and climbs steeply at
+    both ends — air conditioning above, electric heating below. Plotted, it is a valley with
+    mountains on either side.</p>
+    <p class="lede">You are standing on the summer peak. The descent ahead is the comfort
+    zone. Beyond it the ground climbs again, into the freeze.</p>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">Down in the valley <span>15–20 °C</span></p>
+    <div class="cols split">
+      <div>
+        <h2>Where a degree costs nothing.</h2>
+        <p>The day-ahead weather forecast is wrong by <span class="num">1.19 °C</span> on
+        average. Down here that barely moves demand — the ground is almost level.</p>
+        <p><strong>47 megawatts</strong> of demand error per degree of weather error. The
+        easiest place on the map to forecast, and where most hours of the year are spent.</p>
+      </div>
+      <div>
+        <div class="bignum truth"><span class="count" data-to="47" data-dp="0">0</span></div>
+        <p class="bignum-label">MW of demand error per °C · comfort zone</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">The standard evaluation <span>scored on observed weather</span></p>
+    <div class="cols split flip">
+      <div>
+        <h2>First, the number you would publish.</h2>
+        <p>Ordinary least squares — Tao Hong's vanilla benchmark plus recency effects, the
+        reference specification in this field. Trained 2021–2025, tested on 2026, split by
+        time and never shuffled.</p>
+        <p>Scored the conventional way, against the temperature that actually occurred, it
+        reaches <span class="num truth">2.47%</span> error. Respectable. It is also how
+        nearly every published load forecast is evaluated.</p>
+      </div>
+      <div>
+        <div class="bignum truth"><span class="count" data-to="2.47" data-dp="2">0.00</span><span style="font-size:.4em">%</span></div>
+        <p class="bignum-label">MAPE · observed weather · 5,088 hours</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame wide">
+  <div class="inner">
+    <p class="eyebrow">Climbing out <span>the same model, honest inputs</span></p>
+    <h2>Now give it the weather it would actually have had.</h2>
+    <p class="lede" style="margin-bottom:2rem">Not a re-trained model. Not different hours.
+    The identical fitted coefficients, fed the temperature that was <em>predicted</em> a day
+    ahead, pulled from an archive of what the forecast said at the time.</p>
+    <div class="cols split">
+      <div class="panel readout">
+        <div class="row"><div class="k">Tested on observed weather<small>the published number</small></div><div class="v truth">2.47%</div></div>
+        <div class="row hi"><div class="k">Tested on the forecast it would have had<small>what would really have happened</small></div><div class="v belief">2.95%</div></div>
+        <div class="row"><div class="k">Trained on forecast weather too<small>matching train to serve</small></div><div class="v">3.24%</div></div>
+        <div class="row"><div class="k">ERCOT's own day-ahead forecast<small>operational, same hours</small></div><div class="v">1.92%</div></div>
+      </div>
+      <div>
+        <div class="bignum belief">+<span class="count" data-to="19.4" data-dp="1">0.0</span><span style="font-size:.4em">%</span></div>
+        <p class="bignum-label">worse, once the weather is real</p>
+        <div class="race">
+          <div class="lane a">
+            <div class="tag"><span>observed weather</span><b class="truth"><span class="count" data-to="2.47" data-dp="2">0.00</span>%</b></div>
+            <div class="track"><i style="--w:76%;background:var(--truth)"></i></div>
+          </div>
+          <div class="lane b">
+            <div class="tag"><span>forecast weather</span><b class="belief"><span class="count" data-to="2.95" data-dp="2">0.00</span>%</b></div>
+            <div class="track"><i style="--w:91%;background:var(--belief)"></i></div>
+          </div>
+        </div>
+        <p class="note" style="margin-top:1.2rem">Training on forecast weather to match
+        serving conditions made it <em>worse</em>. Noisy predictors bias coefficients toward
+        zero, so that model learned a damped temperature response and under-reacted at the
+        extremes.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">High ground <span>where the error lands</span></p>
+    <div class="cols split">
+      <div>
+        <h2>The same degree, sixteen times the cost.</h2>
+        <p>You are on the far mountain now, below freezing. Weather error is roughly
+        constant across the whole map — but here the identical 1.19 °C miss becomes hundreds
+        of megawatts.</p>
+        <p class="note">Extra MW of demand error per °C of weather error, by band.</p>
+        <div style="margin-top:1.1rem">
+          <div class="bandrow"><span>−20 to 0 °C</span><span class="bar"><i style="--w:100%"></i></span><span class="val"><span class="count" data-to="767" data-dp="0">0</span></span></div>
+          <div class="bandrow"><span>0 to 10 °C</span><span class="bar"><i style="--w:72%"></i></span><span class="val"><span class="count" data-to="554" data-dp="0">0</span></span></div>
+          <div class="bandrow mild"><span>10 to 20 °C</span><span class="bar"><i style="--w:6%"></i></span><span class="val"><span class="count" data-to="47" data-dp="0">0</span></span></div>
+          <div class="bandrow"><span>20 to 30 °C</span><span class="bar"><i style="--w:42%"></i></span><span class="val"><span class="count" data-to="326" data-dp="0">0</span></span></div>
+          <div class="bandrow"><span>30 to 35 °C</span><span class="bar"><i style="--w:74%"></i></span><span class="val"><span class="count" data-to="569" data-dp="0">0</span></span></div>
+        </div>
+      </div>
+      <div>
+        <div class="bignum belief"><span class="count" data-to="767" data-dp="0">0</span></div>
+        <p class="bignum-label">MW per °C below freezing · against 47 in the valley</p>
+        <p class="note" style="margin-top:1.6rem">A backtest fed observed weather has zero
+        weather error anywhere on this map. It never sees any of this.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">Confidence <span>conformal prediction intervals</span></p>
+    <div class="cols split flip">
+      <div>
+        <h2>It overstates confidence, not just accuracy.</h2>
+        <p>A point forecast carries none of this, so the next step is a range — calibrated
+        on the model's own recent residuals, per temperature band.</p>
+        <p>Calibrate on <em>observed</em>-weather residuals, the natural thing to do, and a
+        nominal 90% interval covers <span class="num belief">83.8%</span> in practice.
+        Calibrating honestly recovers most of it, for about 8% more width.</p>
+        <p>That is the more dangerous error. A too-narrow interval is exactly what persuades
+        someone to skip the review.</p>
+      </div>
+      <div class="panel">
+        <h3>Nominal 90% interval — what it actually covered</h3>
+        <div style="margin-top:1rem">
+          <div class="bandrow"><span>−20 to 0 °C</span><span class="bar"><i style="--w:68%"></i></span><span class="val">68%</span></div>
+          <div class="bandrow"><span>0 to 10 °C</span><span class="bar"><i style="--w:80%"></i></span><span class="val">80%</span></div>
+          <div class="bandrow mild"><span>10 to 20 °C</span><span class="bar"><i style="--w:91%"></i></span><span class="val">91%</span></div>
+          <div class="bandrow mild"><span>20 to 30 °C</span><span class="bar"><i style="--w:88%"></i></span><span class="val">88%</span></div>
+          <div class="bandrow mild"><span>30 to 35 °C</span><span class="bar"><i style="--w:90%"></i></span><span class="val">90%</span></div>
+        </div>
+        <p class="note" style="margin-top:1.1rem">Honest calibration repairs the mild bands
+        and barely touches the cold. Below freezing an interval claiming 90% is wrong a
+        third of the time — while already 11,534 MW wide, 17% of load.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">The decision <span>where does the review line go?</span></p>
+    <div class="cols split">
+      <div>
+        <h2>The model gives a number. Someone still sets the line.</h2>
+        <p>If some hours cannot be trusted, route them to a person. Reviewing costs analyst
+        time; errors cost money. How many hours you review is not a statistical question.
+        It is a ratio.</p>
+        <p class="note">Nothing below is asserted. The arithmetic runs against the measured
+        risk–coverage curve from the test period.</p>
+      </div>
+      <div class="panel calc">
+        <div class="ctl">
+          <label for="revcost">Cost of one analyst review <span class="amt" id="revcostv">$400</span></label>
+          <input type="range" id="revcost" min="50" max="2000" step="50" value="400">
+        </div>
+        <div class="ctl">
+          <label for="errcost">Cost per MW of forecast error <span class="amt" id="errcostv">$18</span></label>
+          <input type="range" id="errcost" min="1" max="120" step="1" value="18">
+        </div>
+        <div class="verdict">
+          <p class="headline" id="verdictHead">Review 5% of hours</p>
+          <p class="detail" id="verdictBody"></p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="eyebrow">The city ahead <span>what the peaks are made of</span></p>
+    <div class="cols split flip">
+      <div>
+        <h2>The ground itself is rising.</h2>
+        <p>Baseline load moved <strong>11 GW in five years</strong>. Mean demand at 25 °C
+        climbed every single year — data centres, crypto mining, industrial load.</p>
+        <p>Peak demand actually <em>fell</em> in 2025, which hides the growth completely.
+        Controlling for temperature reveals it.</p>
+      </div>
+      <div>
+        <div class="bignum" style="color:var(--warn)"><span class="count" data-to="11.2" data-dp="1">0.0</span><span style="font-size:.4em"> GW</span></div>
+        <p class="bignum-label">added at the same temperature, 2021 → 2026</p>
+        <div style="margin-top:1.4rem">
+          <div class="bandrow"><span>2021</span><span class="bar"><i style="--w:81%;background:var(--warn)"></i></span><span class="val">46.5</span></div>
+          <div class="bandrow"><span>2023</span><span class="bar"><i style="--w:87%;background:var(--warn)"></i></span><span class="val">50.4</span></div>
+          <div class="bandrow"><span>2026</span><span class="bar"><i style="--w:100%;background:var(--warn)"></i></span><span class="val">57.7</span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame wide">
+  <div class="inner">
+    <p class="eyebrow">What does not work <span>and why that is the finding</span></p>
+    <h2>Some hours cannot be flagged at all.</h2>
+    <div class="cols split" style="margin-top:1.6rem">
+      <div>
+        <p>Four decision-time uncertainty signals were combined to rank hours for review.
+        Reviewing the worst 5% moves error from <span class="num">2.92%</span> to
+        <span class="num">2.77%</span>. Picking at random gets <span class="num">2.94%</span>.</p>
+        <p>The entire benefit is <strong>0.17 percentage points</strong> — and the single
+        worst hour, <span class="num">14,164 MW</span>, is never flagged at any budget up to
+        10%.</p>
+        <h3 style="margin-top:1.6rem">The ablation</h3>
+        <p class="note" style="margin-bottom:.8rem">Change in error when each signal is
+        removed. Negative means removing it <em>helped</em>.</p>
+        <div class="bandrow"><span>interval width</span><span class="bar"><i style="--w:100%"></i></span><span class="val">+0.032</span></div>
+        <div class="bandrow mild"><span>lead disagree</span><span class="bar"><i style="--w:19%"></i></span><span class="val">−0.006</span></div>
+        <div class="bandrow mild"><span>temp extremity</span><span class="bar"><i style="--w:16%"></i></span><span class="val">−0.005</span></div>
+        <div class="bandrow mild"><span>train density</span><span class="bar"><i style="--w:16%"></i></span><span class="val">−0.005</span></div>
+      </div>
+      <div>
+        <h3>Why the ceiling exists</h3>
+        <p>The worst hours are 10–14 GW out, almost all on 26–27 January 2026. Two rounds of
+        feature engineering aimed at them moved the error almost not at all.</p>
+        <p>The reason is in the operator's own numbers. <strong>ERCOT missed the same hours,
+        in the same direction, by up to 9,616 MW.</strong> That morning demand <em>fell</em>
+        while the temperature held near −6 °C.</p>
+        <p>Demand dropping during a freeze is not a weather response. It is behaviour — a
+        conservation appeal, or large load being curtailed.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner">
+    <p class="pull">You cannot build a confidence score for an event whose cause is not
+    among your inputs.</p>
+    <p class="lede">Every signal here is a function of temperature. The dominant error
+    source is not. Catching those hours needs a different input — a demand-response feed,
+    the operator's own conservation notices — not better statistics.</p>
+    <p class="lede" style="margin-top:1.4rem">Which is worth knowing before you buy a better
+    model.</p>
+  </div>
+</section>
+
+<section class="frame">
+  <div class="inner" style="text-align:center">
+    <p class="pull" style="margin:0 auto 1.2rem;max-width:20ch">Every lit window is a
+    forecast that was close enough.</p>
+    <p class="lede" style="margin:0 auto;max-width:34rem">Not the most accurate one. The one
+    whose error someone had measured honestly, and priced, before the weather arrived.</p>
+    <p class="note" style="margin:2.6rem auto 0;font-family:var(--data);font-size:.7rem;letter-spacing:.12em;text-transform:uppercase">
+      The trace keeps running whether anyone flagged the hour or not.</p>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="inner">
+    <p>ERCOT hourly demand and day-ahead forecasts from EIA-930. Observed weather from ERA5
+    reanalysis; archived day-ahead forecasts from the Open-Meteo Previous Runs archive, GFS
+    pinned. April 2021 – July 2026, 46,247 aligned hours. Ordinary least squares throughout —
+    the claim is about evaluation, and a more exotic model would invite the finding to be
+    dismissed as an artifact.</p>
+    <p>Limitations: weather sampled at four metros with fixed population weights; the 24-hour
+    horizon approximates a day-ahead market that closes late morning; one region and seven
+    months of test data, with no replication on a winter-peaking grid.</p>
+    <p><a href="https://github.com/Lolale3/honest-load-forecast">Method, code and 147 tests →</a></p>
+  </div>
+</footer>
+
+<script>
+const reduced = matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+/* ======================================================================
+   THE WORLD  —  a year's journey, driven entirely by scroll
+
+   The road runs through the seasons: a blazing summer peak, down into the
+   mild valley, up into a severe freeze, and out into ordinary weather where
+   the city stands.
+
+   Terrain height at every point is demandAt() — the measured ERCOT curve. So
+   both mountains are real: air conditioning on one side, electric heating on
+   the other, with the comfort zone flat between them.
+
+   Nothing animates on its own. Sun, snow and elevation all follow scroll.
+   ====================================================================== */
+(function world(){
+  const cv=document.getElementById('world'), ctx=cv.getContext('2d');
+  let W=0,H=0;
+
+  function resize(){
+    const dpr=Math.min(devicePixelRatio||1,2);
+    W=cv.clientWidth;H=cv.clientHeight;
+    cv.width=W*dpr;cv.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0);
+  }
+  resize(); addEventListener('resize',resize,{passive:true});
+
+  const CURVE=[[-12,72],[-10,70],[-5,67],[0,65.1],[5,54.4],[10,46.5],
+               [15,42.9],[17.5,42.5],[20,42.5],[25,47.1],[30,56.6],
+               [35,69.2],[40,78.1],[46,84]];
+  function demandAt(t){
+    if(t<=CURVE[0][0])return CURVE[0][1];
+    if(t>=CURVE[CURVE.length-1][0])return CURVE[CURVE.length-1][1];
+    for(let i=0;i<CURVE.length-1;i++){const a=CURVE[i],b=CURVE[i+1];
+      if(t>=a[0]&&t<=b[0])return a[1]+(b[1]-a[1])*((t-a[0])/(b[0]-a[0])); }
+    return 55;
+  }
+
+  const rnd=n=>{const v=Math.sin(n*127.1)*43758.5453;return v-Math.floor(v)};
+  const lerp=(a,b,f)=>a+(b-a)*f;
+  const mix=(c,d,f)=>[lerp(c[0],d[0],f),lerp(c[1],d[1],f),lerp(c[2],d[2],f)];
+  const rgb=(c,a)=>'rgba('+(c[0]|0)+','+(c[1]|0)+','+(c[2]|0)+','+(a===undefined?1:a)+')';
+  const clamp=(v,a,b)=>Math.min(Math.max(v,a),b);
+
+  // --- the seasonal road ------------------------------------------------
+  // Temperature by position along the page. Summer peak, mild valley, deep
+  // freeze, then ordinary weather where the city stands.
+  // Timed so the weather matches the section above it: summer over the
+  // opening, mild over the comfort-zone copy, deep freeze over the cold-band
+  // failures and the January morning, clearing for the city.
+  const SEASON=[[0,38],[0.10,30],[0.17,18],[0.28,16],[0.37,6],
+                [0.46,-7],[0.58,-11],[0.70,-10],[0.83,-7],[0.92,4],[1,22]];
+
+  function tempAtP(p){
+    p=clamp(p,0,1);
+    for(let i=0;i<SEASON.length-1;i++){
+      const a=SEASON[i],b=SEASON[i+1];
+      if(p>=a[0]&&p<=b[0]){
+        const f=(p-a[0])/(b[0]-a[0]);
+        return a[1]+(b[1]-a[1])*(f*f*(3-2*f));   // smoothstep, no kinks
+      }
+    }
+    return 20;
+  }
+
+  const ROAD=110, RIB=2.2, HALF=26, EYE=3.4, FOCAL=300;
+  const tempAtZ = z => tempAtP(z/ROAD);
+
+  function heightAt(x,z){
+    const spine=(demandAt(tempAtZ(z))-42.5)/42.5*9.0;
+    const flank=Math.pow(Math.abs(x)/HALF,1.9)*13;
+    const rough=(rnd(Math.floor(z*0.7)*31+Math.floor(x*0.35)*17)-0.5)*1.5;
+    return spine+flank+rough;
+  }
+
+  // Sky by temperature, not by page position.
+  const HOT   ={top:[58,34,30], bot:[214,124,62]};
+  const MILD  ={top:[24,44,62], bot:[126,158,158]};
+  const COLD  ={top:[36,46,60], bot:[152,164,176]};
+  const FROZEN={top:[46,54,68], bot:[196,204,214]};
+
+  function skyFor(t){
+    if(t>=24){const f=clamp((t-24)/16,0,1);return{top:mix(MILD.top,HOT.top,f),bot:mix(MILD.bot,HOT.bot,f)}}
+    if(t>=4){const f=clamp((24-t)/20,0,1);return{top:mix(MILD.top,COLD.top,f),bot:mix(MILD.bot,COLD.bot,f)}}
+    const f=clamp((4-t)/15,0,1);return{top:mix(COLD.top,FROZEN.top,f),bot:mix(COLD.bot,FROZEN.bot,f)};
+  }
+
+  // --- snow -------------------------------------------------------------
+  const FLAKES=260;
+  const snow=[];
+  for(let i=0;i<FLAKES;i++){
+    snow.push({x:(rnd(i*3.7)-0.5)*70, y:rnd(i*5.1)*26-4, z:2+rnd(i*7.3)*60, s:0.5+rnd(i*11.9)});
+  }
+
+  let travel=0, camY=0, t0=performance.now(), lastScroll=0, drift=0;
+
+  function scrollP(){
+    const h=document.documentElement.scrollHeight-innerHeight;
+    return h>0?clamp(scrollY/h,0,1):0;
+  }
+
+  function frame(now){
+    const dt=clamp((now-t0)/16.7,0,3); t0=now;
+
+    const sp=scrollP();
+    const targetTravel=sp*ROAD;
+    const delta=targetTravel-travel;
+    travel+=delta*Math.min(0.07*dt,1);
+
+    // Snow drifts in proportion to how fast you are moving through it.
+    drift+=Math.abs(delta)*0.4;
+
+    const p=clamp(travel/ROAD,0,1);
+    const temp=tempAtP(p);
+    const freeze=clamp((4-temp)/15,0,1);      // 0 mild, 1 deep freeze
+    const heat=clamp((temp-24)/16,0,1);       // 0 mild, 1 blazing
+    const horizon=H*0.44, cx=W/2;
+
+    const targetCam=heightAt(0,travel)+EYE;
+    camY+=(targetCam-camY)*Math.min(0.09*dt,1);
+
+    function proj(x,z){
+      const dz=z-travel;
+      if(dz<=0.6)return null;
+      const s=FOCAL/dz;
+      return {x:cx+x*s, y:horizon+(camY-heightAt(x,z))*s, s, dz};
+    }
+
+    // --- sky ------------------------------------------------------------
+    const sky=skyFor(temp);
+    const g=ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,rgb(sky.top)); g.addColorStop(0.6,rgb(sky.bot));
+    // Keep the ground end of the sky dark even in a whiteout -- a bright sky
+    // over dark ground reads as snow, and keeps the text legible.
+    g.addColorStop(1,rgb(mix(sky.bot,[8,10,14],0.62+0.22*freeze)));
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+
+    // --- sun: high and fierce in summer, low and pale in the freeze ------
+    const sunY=horizon-H*(0.16*heat+0.02);
+    const sunR=H*(0.030+0.028*heat);
+    const halo=ctx.createRadialGradient(cx,sunY,0,cx,sunY,H*(0.35+0.45*heat));
+    halo.addColorStop(0,'rgba(255,'+(238-70*heat)+','+(214-118*heat)+','+(0.24+0.34*heat)+')');
+    halo.addColorStop(1,'rgba(255,200,150,0)');
+    ctx.fillStyle=halo; ctx.fillRect(0,0,W,H);
+
+    ctx.beginPath(); ctx.arc(cx,sunY,sunR,0,Math.PI*2);
+    ctx.fillStyle='rgba(255,'+(248-40*heat)+','+(228-70*heat)+','+(0.35+0.5*heat-0.25*freeze)+')';
+    ctx.fill();
+
+    // heat haze bands, only when it is genuinely hot
+    if(heat>0.05){
+      for(let i=0;i<5;i++){
+        const hy=horizon+i*7+Math.sin(travel*0.3+i)*2;
+        ctx.fillStyle='rgba(255,214,160,'+(0.05*heat)+')';
+        ctx.fillRect(0,hy,W,2.5);
+      }
+    }
+
+    // freezing whiteout thickens the air
+    if(freeze>0.02){
+      // Whiteout concentrated near the horizon rather than flat across the
+      // frame, so it reads as blowing snow instead of a grey filter.
+      const wo=ctx.createLinearGradient(0,horizon-H*0.28,0,H);
+      wo.addColorStop(0,'rgba(220,228,238,'+(0.20*freeze)+')');
+      wo.addColorStop(0.45,'rgba(214,222,232,'+(0.13*freeze)+')');
+      wo.addColorStop(1,'rgba(214,222,232,0)');
+      ctx.fillStyle=wo; ctx.fillRect(0,0,W,H);
+    }
+
+    // --- the city, at the end of the road --------------------------------
+    const cityZ=ROAD+14, cityDz=cityZ-travel;
+    if(cityDz>1&&cityDz<150){
+      const s=FOCAL/cityDz;
+      const base=horizon+(camY-heightAt(0,cityZ))*s;
+      const lit=clamp((p-0.62)/0.34,0,1);
+      for(let i=0;i<26;i++){
+        const seed=i*5.3, wx=(rnd(seed)-0.5)*44;
+        const bw=(1.1+rnd(seed+1)*1.9)*s, bh=(3+rnd(seed+2)*11)*s;
+        const bx=cx+wx*s-bw/2;
+        if(bx>W+60||bx+bw<-60)continue;
+        ctx.fillStyle='rgba(11,15,21,'+(0.5+0.42*clamp(cityDz/60,0,1))+')';
+        ctx.fillRect(bx,base-bh,bw,bh);
+        if(lit>0.02&&bh>10){
+          const rows=Math.min(22,Math.floor(bh/7)),cols=Math.max(1,Math.floor(bw/6));
+          for(let r=0;r<rows;r++)for(let c=0;c<cols;c++){
+            if(rnd(seed*3+r*11+c*7)>1-lit*0.62){
+              ctx.fillStyle='rgba(255,204,120,'+(0.35+0.55*lit)+')';
+              ctx.fillRect(bx+2+c*6,base-bh+4+r*7,Math.max(1.5,bw*0.09),Math.max(1.5,bh*0.012));
+            }
+          }
+        }
+      }
+      if(lit>0.05){
+        const gl=ctx.createRadialGradient(cx,base,0,cx,base,H*0.42*lit);
+        gl.addColorStop(0,'rgba(255,196,110,'+(0.22*lit)+')');
+        gl.addColorStop(1,'rgba(255,196,110,0)');
+        ctx.fillStyle=gl; ctx.fillRect(0,0,W,H);
+      }
+    }
+
+    // --- terrain ----------------------------------------------------------
+    const startZ=Math.floor(travel/RIB)*RIB, ribs=46;
+
+    for(let i=ribs;i>=1;i--){
+      const z=startZ+i*RIB, dz=z-travel;
+      if(dz<=0.8)continue;
+      const fade=clamp(1-dz/(ribs*RIB),0,1);
+
+      // ground fill — whitens as the freeze deepens ahead
+      if(i<ribs){
+        const zf=clamp((4-tempAtZ(z))/15,0,1);
+        ctx.beginPath(); let ok=false;
+        for(let j=-12;j<=12;j++){const pt=proj((j/12)*HALF,z); if(!pt)continue;
+          ok?ctx.lineTo(pt.x,pt.y):(ctx.moveTo(pt.x,pt.y),ok=true);}
+        for(let j=12;j>=-12;j--){const pt=proj((j/12)*HALF,z+RIB); if(!pt)continue; ctx.lineTo(pt.x,pt.y);}
+        ctx.closePath();
+        const gc=mix([8,12,18],[196,206,218],zf*0.82);
+        ctx.fillStyle=rgb(gc,0.30+fade*0.44);
+        ctx.fill();
+      }
+
+      ctx.beginPath(); let moved=false;
+      for(let j=-12;j<=12;j++){
+        const pt=proj((j/12)*HALF,z); if(!pt)continue;
+        moved?ctx.lineTo(pt.x,pt.y):(ctx.moveTo(pt.x,pt.y),moved=true);
+      }
+      const zf=clamp((4-tempAtZ(z))/15,0,1);
+      const zh=clamp((tempAtZ(z)-24)/16,0,1);
+      let tint=mix([63,191,168],[255,170,110],zh);
+      tint=mix(tint,[236,244,252],zf*0.75);
+      ctx.strokeStyle=rgb(tint,0.06+fade*0.5);
+      ctx.lineWidth=0.6+fade*1.4;
+      ctx.stroke();
+    }
+
+    for(let j=-4;j<=4;j++){
+      const x=(j/4)*HALF*0.82;
+      ctx.beginPath(); let moved=false;
+      for(let i=1;i<=ribs;i++){const pt=proj(x,startZ+i*RIB); if(!pt)continue;
+        moved?ctx.lineTo(pt.x,pt.y):(ctx.moveTo(pt.x,pt.y),moved=true);}
+      ctx.strokeStyle='rgba('+(freeze>0.4?'232,240,248':'63,191,168')+',0.10)';
+      ctx.lineWidth=0.8; ctx.stroke();
+    }
+
+    // --- snow, in proportion to the cold ---------------------------------
+    if(freeze>0.03){
+      for(let i=0;i<FLAKES;i++){
+        const f=snow[i];
+        // Position advances with travel, so the storm moves only as you do.
+        const z=((f.z-travel*1.6)%64+64)%64+1.2;
+        const dz=z; if(dz<=0.8)continue;
+        const s=FOCAL/dz;
+        const sway=Math.sin(drift*0.5+i)*1.6;
+        const y=f.y+((drift*2.2+i*7)%30)-6;
+        const sx=cx+(f.x+sway)*s, sy=horizon+(camY-heightAt(0,z)+y)*s;
+        if(sx<-20||sx>W+20||sy<-20||sy>H+20)continue;
+        const a=freeze*clamp(1-dz/60,0,1)*0.9;
+        ctx.fillStyle='rgba(248,252,255,'+a+')';
+        ctx.beginPath(); ctx.arc(sx,sy,Math.max(0.6,f.s*s*0.10),0,Math.PI*2); ctx.fill();
+      }
+    }
+
+    // --- scrim ------------------------------------------------------------
+    // Text sits over the lower two thirds. When the world goes pale, darken
+    // that region so contrast never depends on the weather.
+    const pale = Math.max(freeze, heat*0.55);
+    const scrim=ctx.createLinearGradient(0,H*0.18,0,H);
+    scrim.addColorStop(0,'rgba(6,9,14,0)');
+    scrim.addColorStop(0.5,'rgba(6,9,14,'+(0.10+0.30*pale)+')');
+    scrim.addColorStop(1,'rgba(6,9,14,'+(0.24+0.38*pale)+')');
+    ctx.fillStyle=scrim; ctx.fillRect(0,0,W,H);
+
+    // --- the light we follow ----------------------------------------------
+    const lead=proj(0,travel+7.5);
+    if(lead){
+      const r=Math.max(30,46*lead.s/22);
+      const warmLight=freeze>0.5;
+      const trail=ctx.createRadialGradient(lead.x,lead.y,0,lead.x,lead.y,r);
+      trail.addColorStop(0, warmLight?'rgba(255,226,170,0.46)':'rgba(120,255,232,0.42)');
+      trail.addColorStop(0.4, warmLight?'rgba(255,196,110,0.18)':'rgba(63,191,168,0.16)');
+      trail.addColorStop(1,'rgba(63,191,168,0)');
+      ctx.fillStyle=trail;
+      ctx.beginPath(); ctx.arc(lead.x,lead.y,r,0,Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(lead.x,lead.y,Math.max(2.5,3.2*lead.s/22),0,Math.PI*2);
+      ctx.fillStyle=warmLight?'rgba(255,244,220,0.96)':'rgba(214,255,248,0.95)';
+      ctx.fill();
+    }
+
+    requestAnimationFrame(frame);
+  }
+
+  camY=heightAt(0,0)+EYE;
+  if(reduced){travel=ROAD*0.36;camY=heightAt(0,travel)+EYE;}
+  requestAnimationFrame(frame);
+})();
+
+/* ---------- one frame at a time ---------- */
+const counted = new WeakSet();
+function countUp(el){
+  if (counted.has(el)) return;
+  counted.add(el);
+  const to=parseFloat(el.dataset.to), dp=parseInt(el.dataset.dp||'0',10);
+  if (reduced){ el.textContent=to.toFixed(dp); return; }
+  const dur=1150, start=performance.now();
+  (function step(now){
+    const t=Math.min((now-start)/dur,1);
+    el.textContent=(to*(1-Math.pow(1-t,3))).toFixed(dp);
+    if(t<1) requestAnimationFrame(step); else el.textContent=to.toFixed(dp);
+  })(performance.now());
+}
+
+const io = new IntersectionObserver(es=>{
+  es.forEach(e=>{
+    if (e.isIntersecting){
+      e.target.classList.add('lit');
+      e.target.querySelectorAll('.count').forEach(countUp);
+    } else if (!reduced){
+      e.target.classList.remove('lit');   // only the current frame reads as present
+    }
+  });
+},{ threshold:0.42 });
+
+document.querySelectorAll('.frame').forEach(f=>io.observe(f));
+
+/* ---------- progress ---------- */
+const prog=document.getElementById('prog');
+let tick=false;
+addEventListener('scroll',()=>{
+  if(tick) return; tick=true;
+  requestAnimationFrame(()=>{
+    const h=document.documentElement.scrollHeight-innerHeight;
+    prog.style.width=(h>0?scrollY/h*100:0)+'%'; tick=false;
+  });
+},{passive:true});
+
+/* ---------- calculator ---------- */
+const RC=[{f:0,mape:2.92,mw:0},{f:0.01,mape:2.90,mw:144536},{f:0.02,mape:2.86,mw:332179},
+          {f:0.05,mape:2.77,mw:802977},{f:0.10,mape:2.69,mw:1401406},
+          {f:0.20,mape:2.66,mw:2377657},{f:0.30,mape:2.62,mw:3324325}];
+const HOURS=5088, WEEKS=HOURS/(24*7);
+const rc=document.getElementById('revcost'), ec=document.getElementById('errcost');
+const rcv=document.getElementById('revcostv'), ecv=document.getElementById('errcostv');
+const vh=document.getElementById('verdictHead'), vb=document.getElementById('verdictBody');
+const money=n=>'$'+Math.round(n).toLocaleString('en-US');
+
+function updateCalc(){
+  const cR=+rc.value, cE=+ec.value;
+  rcv.textContent=money(cR); ecv.textContent=money(cE);
+  let best=RC[0], net=0;
+  for(const pt of RC){ const v=pt.mw*cE-pt.f*HOURS*cR; if(v>net){net=v;best=pt;} }
+  const n=Math.round(best.f*HOURS);
+  if(best.f===0){
+    vh.textContent='Review nothing.';
+    vb.textContent='At these costs an analyst hour is worth more than the error it removes. '
+      +'The forecast ships unattended at 2.92% error.';
+  }else{
+    vh.textContent='Review '+(best.f*100).toFixed(0)+'% of hours — about '+(n/WEEKS).toFixed(1)+' a week.';
+    vb.textContent='Error on the '+(HOURS-n).toLocaleString('en-US')+' hours shipping unattended '
+      +'falls to '+best.mape.toFixed(2)+'%. Net value over '+Math.round(WEEKS)+' weeks: '+money(net)
+      +'. Random selection of the same number of hours reaches 2.94%.';
+  }
+}
+rc.addEventListener('input',updateCalc);
+ec.addEventListener('input',updateCalc);
+updateCalc();
+</script>
+
+</body>
+</html>
