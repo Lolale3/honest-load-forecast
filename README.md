@@ -234,4 +234,4 @@ builds, the conformal coverage guarantee, and a control experiment asserting
 that a *perfect* weather forecast makes all four configurations identical — so
 any difference measured here comes from the weather data, not from this code.
 
-**[→ Read the visual essay](https://lolale3.github.io/honest-load-forecast/)**
+**[→ Read the visual essay]([https://lolale3.github.io/honest-load-forecast/](https://htmlpreview.github.io/?https://github.com/Lolale3/honest-load-forecast/blob/main/docs/index.html))**
