@@ -59,7 +59,7 @@ sees any of this.
 | **A** | observed | observed | 2.47% | 1,386 MW |
 | **B** | observed | forecast | **2.95%** | 1,675 MW |
 | **C** | forecast | forecast | 3.24% | 1,828 MW |
-| **D** | forecast target, observed history | 3.24% | 1,827 MW |
+| **D** | forecast target, observed history | | 3.24% | 1,827 MW |
 | — | *ERCOT's own day-ahead forecast* | | *1.92%* | *1,098 MW* |
 
 **A → B is the finding: +19.4%.** The same fitted model, fed the weather it
